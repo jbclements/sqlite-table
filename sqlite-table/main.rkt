@@ -39,7 +39,7 @@
                                   (#:permanent permanent?
                                    #:use-existing boolean?)
                                   table?)]
-               [inner-join (->* (table? table? (listof colspec?))
+               [inner-join (->* (table? table? (listof symbol?))
                                 (#:permanent permanent?
                                  #:use-existing boolean?)
                                 table?)]
@@ -584,7 +584,7 @@
 
 
   (check-equal? (name-and-connection #f)
-                (list "temp_17" conn))  
+                (list "temp_17" conn))
 )
 
 (printf "existing tables in permanent storage: ~v\n"

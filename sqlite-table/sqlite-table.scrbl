@@ -2,6 +2,8 @@
 
 @title{SQLite Table}
 
+@(require (for-label "main.rkt"))
+
 @defmodule[sqlite-table]{
 
 This library is intended to simplify the process of transforming
@@ -29,7 +31,15 @@ as a permanent table with a name that is a number randomly chosen between
 the table is created as a temporary table with a name assigned from a
 sequential pool.
 
- For instance:
+If the @racket[#:use-existing] argument is present and not @racket[#f], then
+the call will simply return an existing table. This is useful if, for instance,
+your code is written in a declarative way, and you don't want the program to
+re-generate every table every time it's run. Please note that no checking is
+performed, so if the inputs to the make-table call change, the use of
+@racket[#:use-existing] could lead to bugs.
+
+
+ Example of @racket[make-table]'s use:
 
  @racketblock[
  (make-table '(student a b)
@@ -77,6 +87,22 @@ sequential pool.
  ]
  }
 
+ @defproc[(inner-join (table-a table?)
+                      (table-b table?)
+                      (join-cols (listof symbol?))
+                      [#:permanent permanent permanent?]
+                      [#:use-existing use-existing? boolean?])
+          table?]{
+ Creates a new table (actually a VIEW) by performing an inner-join on
+ the two tables, using the specified columns. The @racket[#:permanent]
+ and @racket[#:use-existing] arguments are treated as they are in
+ @racket[make-table].
+ }
+
+@defproc[(table? (t any/c)) boolean?]{Determines whether a value is a table.
+ Currently, tables are represented simply as strings, specifically the name
+ of the table in the database.}
+
  Undocumented functions:
 
  @verbatim{
@@ -100,12 +126,7 @@ sequential pool.
                                   (#:permanent permanent?
                                    #:use-existing boolean?)
                                   table?)]
-               [inner-join (->* (table? table? (listof colspec?))
-                                (#:permanent permanent?
-                                 #:use-existing boolean?)
-                                table?)]
-               [back-door/rows (-> string? boolean? any/c)])
- table?)
+               [back-door/rows (-> string? boolean? any/c)]))
  }
  
 }
