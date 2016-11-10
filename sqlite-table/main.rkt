@@ -16,7 +16,7 @@
                                table?)]
                [make-table-from-select
                 (->* (table? (listof colspec?))
-                     (#:where any/c
+                     (#:where (listof where-clause?)
                       #:group-by (listof symbol?)
                       #:permanent permanent?
                       #:use-existing boolean?)
@@ -32,7 +32,7 @@
                                 (any/c)
                                 any/c)]
                [table-select (->* (table? (listof colspec?))
-                                  (#:where any/c
+                                  (#:where (listof where-clause?)
                                    #:group-by (listof symbol?))
                                   (sequence/c (vectorof any/c)))]
                [natural-join (->* (table? table?)
@@ -55,7 +55,14 @@
                        (list/c 'max symbol?)))
 (define natural? exact-nonnegative-integer?)
 
-(define file-conn (sqlite3-connect #:database "/tmp/student-data.sqlite"
+(define where-clause? (list/c symbol?
+                              (or/c symbol? string? natural?)
+                              (or/c symbol? string? natural?)))
+(define where-clauses? (listof where-clause?))
+
+(define TABLE-FILENAME "/tmp/racket-tables.sqlite")
+
+(define file-conn (sqlite3-connect #:database TABLE-FILENAME
                                    #:mode 'create))
 (define conn (sqlite3-connect #:database 'memory))
 

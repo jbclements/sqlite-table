@@ -13,7 +13,7 @@
                    "the db library if an operation you want "
                    "is missing.")))
 
-(define scribblings '())
+(define scribblings '(("sqlite-table.scrbl")))
 #;(define categories '(media))
 
 
