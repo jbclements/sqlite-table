@@ -349,6 +349,13 @@
 (define (parse-sql-expr e)
   (match e
     [(? symbol? e) (name->sql e)]
+    [(? string? e) (string->sql-string e)]
+    ;; again, I'm sure some decimals will work fine...
+    [(? integer? i) (number->string i)]))
+
+;; given a string, produce the corresponding sql string
+(define (string->sql-string str)
+  (match str
     [(and (? string? e)
           ;; not clear what kind of strings sqlite accepts.
           ;; being conservative for now (no internet connection to
@@ -358,8 +365,10 @@
      (define noquotes
        (regexp-replace #px"'" e "''"))
      (string-append "'" noquotes "'")]
-    ;; again, I'm sure some decimals will work fine...
-    [(? integer? i) (number->string i)]))
+    [other
+     (raise-argument-error 'string->sql-string
+                           "string representable in sqlite"
+                           0 str)]))
 
 
 
@@ -502,7 +511,9 @@
    #(88 "q" 1)))
 
 (define t3 (natural-join t1 t2))
-
+  (let ([ans t3])
+    (printf "~s\n" ans)
+    ans)
 
 (check-equal?
  (table-select t3 '(a b zagbar quux trogdor))
@@ -585,6 +596,7 @@
 
   (check-equal? (name-and-connection #f)
                 (list "temp_17" conn))
+  
 )
 
 (printf "existing tables in permanent storage: ~v\n"
