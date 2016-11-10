@@ -83,7 +83,6 @@ performed, so if the inputs to the make-table call change, the use of
  (check-equal? (table-select t1 '(b) #:where '((< 2 a)))
                '(#(4)
                  #(87)))
-
  ]
  }
 
@@ -98,6 +97,14 @@ performed, so if the inputs to the make-table call change, the use of
  and @racket[#:use-existing] arguments are treated as they are in
  @racket[make-table].
  }
+
+ @defproc[(in-table-column (table table?) (column symbol?)) (sequence/c any/c)]{Given
+ a table and a column name, produces a sequence of the unique values appearing in
+ that column of the table.  This is useful in producing grouped results. For example:
+
+ @racketblock[
+ (for/list ([team (in-table-column table 'team)])
+  (table-select table '(student-id) #:where `((= team-name ,team))))]}
 
 @defproc[(table? (t any/c)) boolean?]{Determines whether a value is a table.
  Currently, tables are represented simply as strings, specifically the name
