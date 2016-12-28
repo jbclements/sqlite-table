@@ -423,6 +423,10 @@
   (define the-conn (if temp-conn? conn file-conn))
   (query-rows the-conn str))
 
+(define (back-door/query str temp-conn?)
+  (define the-conn (if temp-conn? conn file-conn))
+  (query the-conn str))
+
 (module+ test
   (require rackunit)
 
@@ -596,7 +600,17 @@
 
   (check-equal? (name-and-connection #f)
                 (list "temp_17" conn))
-  
+
+  ;; can you create a table with illegal column names?
+  (check-exn #px"expected column names consisting only of"
+             (λ () (make-table '(|a b| c)
+                               '((3 4)
+                                 (5 6)))))
+
+  ;; can we get the column names?
+  ;; YES!
+  (back-door/query
+   "SELECT * FROM temp_3 LIMIT 0" #t)
 )
 
 (printf "existing tables in permanent storage: ~v\n"
