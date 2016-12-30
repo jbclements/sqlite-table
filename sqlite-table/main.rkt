@@ -31,6 +31,8 @@
                [table-ref1 (->* (table? symbol? symbol? any/c)
                                 (any/c)
                                 any/c)]
+               [table-column-names (-> table?
+                                       (listof symbol?))]
                [table-select (->* (table? (listof colspec?))
                                   (#:where (listof where-clause?)
                                    #:group-by (listof symbol?))
@@ -252,6 +254,25 @@
 
 (define (ref-fail)
   (error 'table-ref1 "no matching value"))
+
+;; given a table, return a list of symbols representing the
+;; column names
+(define (table-column-names table)
+  (define the-conn (if (temp-table? table) conn file-conn))
+  (define result (query the-conn
+                        (format
+                         "SELECT * FROM ~a LIMIT 0;"
+                         (name->sql table))))
+  (match result
+    [(rows-result headers _)
+     (for/list ([h (in-list headers)])
+       (match (assoc 'name h)
+         [#f (error 'table-column-names
+                    "internal error: expected column names from SQLite")]
+         [(cons _ name) (string->symbol name)]))]
+    [other
+     (error 'table-column-names
+            "internal error: expected rows-result from query")]))
 
 ;; given a table and a list of columns or (count), and optional
 ;; #:where and #:group-by clauses, return the rows that result.
@@ -508,6 +529,9 @@
               '((1 1234)
                 (87 2242))))
 
+  (check-equal? (table-column-names t2)
+                '(b trogdor))
+
 (check-equal?
  (table-select t1 '(b quux (count)) #:group-by '(b quux))
  '(#(4 "p" 1)
@@ -607,10 +631,6 @@
                                '((3 4)
                                  (5 6)))))
 
-  ;; can we get the column names?
-  ;; YES!
-  (back-door/query
-   "SELECT * FROM temp_3 LIMIT 0" #t)
 )
 
 (printf "existing tables in permanent storage: ~v\n"
