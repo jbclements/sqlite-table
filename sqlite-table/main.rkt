@@ -15,9 +15,10 @@
                                  #:use-existing boolean?)
                                table?)]
                [make-table-from-select
-                (->* (table? (listof colspec?))
+                (->* (table? (or/c '* (listof colspec?)))
                      (#:where (listof where-clause?)
                       #:group-by (listof symbol?)
+                      #:limit exact-nonnegative-integer?
                       #:permanent permanent?
                       #:use-existing boolean?)
                      table?)]
@@ -33,9 +34,10 @@
                                 any/c)]
                [table-column-names (-> table?
                                        (listof symbol?))]
-               [table-select (->* (table? (listof colspec?))
+               [table-select (->* (table? (or/c '* (listof colspec?)))
                                   (#:where (listof where-clause?)
-                                   #:group-by (listof symbol?))
+                                   #:group-by (listof symbol?)
+                                   #:limit exact-nonnegative-integer?)
                                   (sequence/c (vectorof any/c)))]
                [natural-join (->* (table? table?)
                                   (#:permanent permanent?
@@ -45,6 +47,10 @@
                                 (#:permanent permanent?
                                  #:use-existing boolean?)
                                 table?)]
+               [left-join (->* (table? table? (listof symbol?))
+                               (#:permanent permanent?
+                                #:use-existing boolean?)
+                               table?)]
                [back-door/rows (-> string? boolean? any/c)])
  table?)
 
@@ -180,7 +186,7 @@
      view-name]))
 
 ;; construct a view as the inner join of two tables (or views)
-(define (inner-join t1 t2 cols #:permanent [maybe-table-name #f]
+(define ((column-join kind) t1 t2 cols #:permanent [maybe-table-name #f]
                     #:use-existing [use-existing? #f])
   (match-define (list view-name the-conn)
     (name-and-connection maybe-table-name))
@@ -204,12 +210,16 @@
     [else
      (query-exec
       the-conn
-      (format "CREATE VIEW ~a AS SELECT * FROM ~a INNER JOIN ~a USING ~a;"
+      (format "CREATE VIEW ~a AS SELECT * FROM ~a ~a JOIN ~a USING ~a;"
               (name->sql view-name)
               (name->sql t1)
+              kind
               (name->sql t2)
               (col-names->col-name-str cols)))
      view-name]))
+
+(define inner-join (column-join "INNER"))
+(define left-join (column-join "LEFT"))
 
 ;; convert a list of symbols to a parenthesized, quoted list
 ;; of strings. Check that they're legal names with no duplicates
@@ -277,13 +287,16 @@
 ;; given a table and a list of columns or (count), and optional
 ;; #:where and #:group-by clauses, return the rows that result.
 (define (table-select table cols #:where [where-clauses #f]
-                      #:group-by [group-by #f])
+                      #:group-by [group-by #f]
+                      #:limit [limit #f])
   (define the-conn (if (temp-table? table) conn file-conn))
   (query-rows
    the-conn
    (string-append
-    (table-select-sql table cols #:where where-clauses
-                      #:group-by group-by)
+    (table-select-sql table cols
+                      #:where where-clauses
+                      #:group-by group-by
+                      #:limit limit)
     ";")))
 
 ;; given a table and a list of columns or (count), and optional
@@ -292,6 +305,7 @@
                                 #:col-names [col-names #f]
                                 #:where [where-clauses #f]
                                 #:group-by [group-by #f]
+                                #:limit [limit #f]
                                 #:permanent [maybe-table-name #f]
                                 #:use-existing [use-existing? #f]) 
   (match-define (list table-name the-conn)
@@ -315,19 +329,26 @@
               (name->sql table-name)
               opt-col-names-str
               (table-select-sql table cols #:where where-clauses
-                                #:group-by group-by)))
+                                #:group-by group-by
+                                #:limit limit)))
      table-name]))
 
 ;; given select parameters, construct the SQL query.
 ;; used as an abstraction for both table-select
 ;; and make-table-from-select
-(define (table-select-sql table cols #:where [where-clauses #f]
-                      #:group-by [group-by #f])
-  (when (empty? cols)
-    (raise-argument-error 'table-select "nonempty list of columns"
-                          1 table cols where-clauses group-by))
-  (define col-name-strs (map col-name->sql/count cols))
-  (define cols-name-str (strs->commasep col-name-strs))
+(define (table-select-sql table cols
+                          #:where [where-clauses #f]
+                          #:group-by [group-by #f]
+                          #:limit [limit #f])
+  (define cols-str
+    (match cols
+      ['* "*"]
+      [_
+       (when (empty? cols)
+         (raise-argument-error 'table-select "nonempty list of columns"
+                               1 table cols where-clauses group-by))
+       (define col-name-strs (map col-name->sql/count cols))
+       (strs->commasep col-name-strs)]))
   (define maybe-where
     (match where-clauses
       [#f ""]
@@ -337,8 +358,13 @@
       [#f ""]
       [(list (? symbol? syms) ...)
        (~a " GROUP BY "(strs->commasep (map name->sql syms))" ")]))
-  (~a "SELECT "cols-name-str" FROM "(name->sql table)" "
-      maybe-where maybe-group-by))
+  (define maybe-limit
+    (match limit
+      [#f ""]
+      [(? number? n)
+       (~a " LIMIT "n" ")]))
+  (~a "SELECT "cols-str" FROM "(name->sql table)" "
+      maybe-where maybe-group-by maybe-limit))
 
 ;; given a list of where clauses, return a SQL WHERE string
 ;; currently only handles equality
@@ -407,18 +433,18 @@
   (not (not (regexp-match #px"^temp_[0-9]+$" table))))
 
 ;; map a column name symbol to a quoted string:
-(define (name->sql name)
+(define (name->sql name #:colon-okay? [colon-okay? #f])
   (define name-str (cond [(symbol? name) (symbol->string name)]
                          [(string? name) name]
                          [else (raise-argument-error
                                 'name->sql
                                 "string or symbol"
                                 0 name)]))
-  (unless (regexp-match #px"^[a-zA-Z0-9_]+$" name-str)
-    (error
-     'col-name->quoted-str
-     "expected column names consisting only of a-zA-Z0-9_, got: ~v"
-     name))
+  (unless (regexp-match #px"^[:a-zA-Z0-9_]+$" name-str)
+       (error
+        'col-name->quoted-str
+        "expected column names consisting only of :a-zA-Z0-9_, got: ~v"
+        name))
   (string-append "\"" name-str "\""))
 
 ;; map (count) to COUNT(*), other symbols to quoted identifiers
@@ -494,6 +520,12 @@
                     (list 1 88 2 "q")
                     (list 1 87 2 "q"))))
 
+  (check-equal? (list->set (table-select t1 '*))
+                (list->set (list (vector 3 4 5 "p")
+                                 (vector 8 87 2 "q")
+                                 (vector 1 88 2 "q")
+                                 (vector 1 87 2 "q"))))
+
   ;; trying to add 'min' aggregate:
   (check-equal? (table-select t1 '(a (min b)) #:group-by '(a))
                 '(#(1 87)
@@ -547,6 +579,10 @@
  (table-select t3 '(a b zagbar quux trogdor))
  '(#(8 87 2 "q" 2242)
    #(1 87 2 "q" 2242)))
+
+  (check-equal?
+   (table-select t3 '(a b zagbar quux trogdor) #:limit 0)
+   '())
 
   (check-equal? (table-size t1) 4)
 
@@ -630,6 +666,20 @@
              (λ () (make-table '(|a b| c)
                                '((3 4)
                                  (5 6)))))
+
+  (check-equal? (table-column-names
+                 (inner-join (make-table '(a b) '((3 4) (5 6)))
+                             (make-table '(a b) '((5 8) (3 9)))
+                             '(a)))
+                '(a b b:1))
+
+  (check-equal? (table-select
+                 (inner-join (make-table '(a b) '((3 4) (5 6)))
+                             (make-table '(a b) '((5 8) (3 9)))
+                             '(a))
+                 
+                 '(a b:1))
+                '(#(3 9) #(5 8)))
 
 )
 
